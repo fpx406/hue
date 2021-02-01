@@ -363,7 +363,15 @@ class TestApi():
       api = HS2Api(self.user)
 
       try:
-        resp = api.autocomplete(snippet, database='database')
+        with patch('beeswax.server.dbms.KazooClient') as KazooClient:
+          server_config = get_query_server_config(name='beeswax')
+          KazooClient.return_value = Mock(
+            # Bug "TypeError: expected string or buffer" if False, to add a new test case and fix
+            exists=Mock(return_value=True),
+            get_children=Mock(
+              return_value=['serverUri=hive-llap-1.gethue.com:10002;serverUri=hive-llap-2.gethue.com:10002'])
+          )
+          resp = api.autocomplete(snippet, database='database')
         assert_false(True)
       except QueryExpired as e:
         assert_equal(e.message, "HTTPSConnectionPool(host='gethue.com', port=10001): Read timed out. (read timeout=120)")
@@ -398,7 +406,16 @@ class TestHiveserver2ApiNonMock(object):
     grant_access("test", "test", "notebook")
     grant_access("test", "test", "hive")
 
-    self.db = dbms.get(self.user, get_query_server_config())
+    with patch('beeswax.server.dbms.KazooClient') as KazooClient:
+      server_config = get_query_server_config(name='beeswax')
+      KazooClient.return_value = Mock(
+        # Bug "TypeError: expected string or buffer" if False, to add a new test case and fix
+        exists=Mock(return_value=True),
+        get_children=Mock(
+          return_value=['serverUri=hive-llap-1.gethue.com:10002;serverUri=hive-llap-2.gethue.com:10002'])
+      )
+
+      self.db = dbms.get(self.user, get_query_server_config())
     self.api = HS2Api(self.user)
 
 

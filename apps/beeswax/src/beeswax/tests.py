@@ -2785,271 +2785,319 @@ class TestWithMockedServer(object):
     dbms.HiveServer2Dbms = dbms.OriginalBeeswaxApi
 
   def test_bulk_query_trash(self):
-    response = _make_query(self.client, 'SELECT', submission_type='Save', name='My Name 1', desc='My Description')
-    content = json.loads(response.content)
-    query = content['design_id']
-    response = _make_query(self.client, 'SELECT', submission_type='Save', name='My Name 2', desc='My Description')
-    content = json.loads(response.content)
-    query2 = content['design_id']
-    ids = [query, query2]
+    with patch('beeswax.server.dbms.KazooClient') as KazooClient:
+      server_config = get_query_server_config(name='beeswax')
+      KazooClient.return_value = Mock(
+        # Bug "TypeError: expected string or buffer" if False, to add a new test case and fix
+        exists=Mock(return_value=True),
+        get_children=Mock(
+          return_value=['serverUri=hive-llap-1.gethue.com:10002;serverUri=hive-llap-2.gethue.com:10002'])
+      )
+      response = _make_query(self.client, 'SELECT', submission_type='Save', name='My Name 1', desc='My Description')
+      content = json.loads(response.content)
+      query = content['design_id']
+      response = _make_query(self.client, 'SELECT', submission_type='Save', name='My Name 2', desc='My Description')
+      content = json.loads(response.content)
+      query2 = content['design_id']
+      ids = [query, query2]
 
-    resp = self.client.get('/beeswax/list_designs')
-    ids_page_1 = set([query.id for query in resp.context[0]['page'].object_list])
-    assert_equal(2, sum([query_id in ids_page_1 for query_id in ids]))
+      resp = self.client.get('/beeswax/list_designs')
+      ids_page_1 = set([query.id for query in resp.context[0]['page'].object_list])
+      assert_equal(2, sum([query_id in ids_page_1 for query_id in ids]))
 
-    resp = self.client.post(reverse('beeswax:delete_design'), {u'skipTrash': [u'false'], u'designs_selection': ids})
-    queries = SavedQuery.objects.filter(id__in=ids)
-    assert_true(queries[0].doc.get().is_trashed())
-    assert_true(queries[1].doc.get().is_trashed())
+      resp = self.client.post(reverse('beeswax:delete_design'), {u'skipTrash': [u'false'], u'designs_selection': ids})
+      queries = SavedQuery.objects.filter(id__in=ids)
+      assert_true(queries[0].doc.get().is_trashed())
+      assert_true(queries[1].doc.get().is_trashed())
 
-    resp = self.client.get('/beeswax/list_designs')
-    ids_page_1 = set([query.id for query in resp.context[0]['page'].object_list])
-    assert_equal(0, sum([query_id in ids_page_1 for query_id in ids]))
+      resp = self.client.get('/beeswax/list_designs')
+      ids_page_1 = set([query.id for query in resp.context[0]['page'].object_list])
+      assert_equal(0, sum([query_id in ids_page_1 for query_id in ids]))
 
-    resp = self.client.post(reverse('beeswax:restore_design'), {u'skipTrash': [u'false'], u'designs_selection': ids})
-    query = SavedQuery.objects.filter(id__in=ids)
-    assert_false(queries[0].doc.get().is_trashed())
-    assert_false(queries[1].doc.get().is_trashed())
+      resp = self.client.post(reverse('beeswax:restore_design'), {u'skipTrash': [u'false'], u'designs_selection': ids})
+      query = SavedQuery.objects.filter(id__in=ids)
+      assert_false(queries[0].doc.get().is_trashed())
+      assert_false(queries[1].doc.get().is_trashed())
 
-    resp = self.client.get('/beeswax/list_designs')
-    ids_page_1 = set([query.id for query in resp.context[0]['page'].object_list])
-    assert_equal(2, sum([query_id in ids_page_1 for query_id in ids]))
+      resp = self.client.get('/beeswax/list_designs')
+      ids_page_1 = set([query.id for query in resp.context[0]['page'].object_list])
+      assert_equal(2, sum([query_id in ids_page_1 for query_id in ids]))
 
-    resp = self.client.post(reverse('beeswax:delete_design'), {u'skipTrash': [u'false'], u'designs_selection': ids})
-    query = SavedQuery.objects.filter(id__in=ids)
-    assert_true(queries[0].doc.get().is_trashed())
-    assert_true(queries[1].doc.get().is_trashed())
+      resp = self.client.post(reverse('beeswax:delete_design'), {u'skipTrash': [u'false'], u'designs_selection': ids})
+      query = SavedQuery.objects.filter(id__in=ids)
+      assert_true(queries[0].doc.get().is_trashed())
+      assert_true(queries[1].doc.get().is_trashed())
 
-    resp = self.client.get('/beeswax/list_designs')
-    ids_page_1 = set([query.id for query in resp.context[0]['page'].object_list])
-    assert_equal(0, sum([query_id in ids_page_1 for query_id in ids]))
+      resp = self.client.get('/beeswax/list_designs')
+      ids_page_1 = set([query.id for query in resp.context[0]['page'].object_list])
+      assert_equal(0, sum([query_id in ids_page_1 for query_id in ids]))
 
-    resp = self.client.post(reverse('beeswax:delete_design'), {u'skipTrash': [u'true'], u'designs_selection': ids})
-    assert_false(SavedQuery.objects.filter(id__in=ids).exists())
+      resp = self.client.post(reverse('beeswax:delete_design'), {u'skipTrash': [u'true'], u'designs_selection': ids})
+      assert_false(SavedQuery.objects.filter(id__in=ids).exists())
 
-    resp = self.client.get('/beeswax/list_designs')
-    ids_page_1 = set([query.id for query in resp.context[0]['page'].object_list])
-    assert_equal(0, sum([query_id in ids_page_1 for query_id in ids]))
+      resp = self.client.get('/beeswax/list_designs')
+      ids_page_1 = set([query.id for query in resp.context[0]['page'].object_list])
+      assert_equal(0, sum([query_id in ids_page_1 for query_id in ids]))
 
   def test_save_design(self):
-    response = _make_query(self.client, 'SELECT', submission_type='Save', name='My Name 1', desc='My Description')
-    content = json.loads(response.content)
-    design_id = content['design_id']
+    with patch('beeswax.server.dbms.KazooClient') as KazooClient:
+      server_config = get_query_server_config(name='beeswax')
+      KazooClient.return_value = Mock(
+        # Bug "TypeError: expected string or buffer" if False, to add a new test case and fix
+        exists=Mock(return_value=True),
+        get_children=Mock(
+          return_value=['serverUri=hive-llap-1.gethue.com:10002;serverUri=hive-llap-2.gethue.com:10002'])
+      )
+      response = _make_query(self.client, 'SELECT', submission_type='Save', name='My Name 1', desc='My Description')
+      content = json.loads(response.content)
+      design_id = content['design_id']
 
-    design = SavedQuery.objects.get(id=design_id)
-    design_obj = hql_query('SELECT')
+      design = SavedQuery.objects.get(id=design_id)
+      design_obj = hql_query('SELECT')
 
-    # Save his own query
-    saved_design = _save_design(user=self.user, design=design, type_=HQL, design_obj=design_obj, explicit_save=True, name='test_save_design', desc='test_save_design desc')
-    assert_equal('test_save_design', saved_design.name)
-    assert_equal('test_save_design desc', saved_design.desc)
-    assert_equal('test_save_design', saved_design.doc.get().name)
-    assert_equal('test_save_design desc', saved_design.doc.get().description)
-    assert_false(saved_design.doc.get().is_historic())
+      # Save his own query
+      saved_design = _save_design(user=self.user, design=design, type_=HQL, design_obj=design_obj, explicit_save=True, name='test_save_design', desc='test_save_design desc')
+      assert_equal('test_save_design', saved_design.name)
+      assert_equal('test_save_design desc', saved_design.desc)
+      assert_equal('test_save_design', saved_design.doc.get().name)
+      assert_equal('test_save_design desc', saved_design.doc.get().description)
+      assert_false(saved_design.doc.get().is_historic())
 
-    # Execute it as auto
-    saved_design = _save_design(user=self.user, design=design, type_=HQL, design_obj=design_obj, explicit_save=False, name='test_save_design', desc='test_save_design desc')
-    assert_equal('test_save_design (new)', saved_design.name)
-    assert_equal('test_save_design desc', saved_design.desc)
-    assert_equal('test_save_design (new)', saved_design.doc.get().name)
-    assert_equal('test_save_design desc', saved_design.doc.get().description)
-    assert_true(saved_design.doc.get().is_historic())
+      # Execute it as auto
+      saved_design = _save_design(user=self.user, design=design, type_=HQL, design_obj=design_obj, explicit_save=False, name='test_save_design', desc='test_save_design desc')
+      assert_equal('test_save_design (new)', saved_design.name)
+      assert_equal('test_save_design desc', saved_design.desc)
+      assert_equal('test_save_design (new)', saved_design.doc.get().name)
+      assert_equal('test_save_design desc', saved_design.doc.get().description)
+      assert_true(saved_design.doc.get().is_historic())
 
-    # not_me user can't modify it
-    try:
-      _save_design(user=self.user_not_me, design=design, type_=HQL, design_obj=design_obj, explicit_save=True, name='test_save_design', desc='test_save_design desc')
-      assert_true(False, 'not_me is not allowed')
-    except PopupException:
-      pass
+      # not_me user can't modify it
+      try:
+        _save_design(user=self.user_not_me, design=design, type_=HQL, design_obj=design_obj, explicit_save=True, name='test_save_design', desc='test_save_design desc')
+        assert_true(False, 'not_me is not allowed')
+      except PopupException:
+        pass
 
-    saved_design.doc.get().share_to_default()
+      saved_design.doc.get().share_to_default()
 
-    try:
-      _save_design(user=self.user_not_me, design=design, type_=HQL, design_obj=design_obj, explicit_save=True, name='test_save_design', desc='test_save_design desc')
-      assert_true(False, 'not_me is not allowed')
-    except PopupException:
-      pass
+      try:
+        _save_design(user=self.user_not_me, design=design, type_=HQL, design_obj=design_obj, explicit_save=True, name='test_save_design', desc='test_save_design desc')
+        assert_true(False, 'not_me is not allowed')
+      except PopupException:
+        pass
 
-    # not_me can execute it as auto
-    saved_design = _save_design(user=self.user_not_me, design=design, type_=HQL, design_obj=design_obj, explicit_save=False, name='test_save_design', desc='test_save_design desc')
-    assert_equal('test_save_design (new)', saved_design.name)
-    assert_equal('test_save_design desc', saved_design.desc)
-    assert_equal('test_save_design (new)', saved_design.doc.get().name)
-    assert_equal('test_save_design desc', saved_design.doc.get().description)
-    assert_true(saved_design.doc.get().is_historic())
+      # not_me can execute it as auto
+      saved_design = _save_design(user=self.user_not_me, design=design, type_=HQL, design_obj=design_obj, explicit_save=False, name='test_save_design', desc='test_save_design desc')
+      assert_equal('test_save_design (new)', saved_design.name)
+      assert_equal('test_save_design desc', saved_design.desc)
+      assert_equal('test_save_design (new)', saved_design.doc.get().name)
+      assert_equal('test_save_design desc', saved_design.doc.get().description)
+      assert_true(saved_design.doc.get().is_historic())
 
-    # not_me can save as a new design
-    design = SavedQuery(owner=self.user_not_me, type=HQL)
+      # not_me can save as a new design
+      design = SavedQuery(owner=self.user_not_me, type=HQL)
 
-    saved_design = _save_design(user=self.user_not_me, design=design, type_=HQL, design_obj=design_obj, explicit_save=True, name='test_save_design', desc='test_save_design desc')
-    assert_equal('test_save_design', saved_design.name)
-    assert_equal('test_save_design desc', saved_design.desc)
-    assert_equal('test_save_design', saved_design.doc.get().name)
-    assert_equal('test_save_design desc', saved_design.doc.get().description)
-    assert_false(saved_design.doc.get().is_historic())
+      saved_design = _save_design(user=self.user_not_me, design=design, type_=HQL, design_obj=design_obj, explicit_save=True, name='test_save_design', desc='test_save_design desc')
+      assert_equal('test_save_design', saved_design.name)
+      assert_equal('test_save_design desc', saved_design.desc)
+      assert_equal('test_save_design', saved_design.doc.get().name)
+      assert_equal('test_save_design desc', saved_design.doc.get().description)
+      assert_false(saved_design.doc.get().is_historic())
 
-    # Save design with len(name) = 64
-    response = _make_query(self.client, 'SELECT', submission_type='Save',
-                name='test_character_limit', desc='test_character_limit desc')
-    content = json.loads(response.content)
-    design_id = content['design_id']
+      # Save design with len(name) = 64
+      response = _make_query(self.client, 'SELECT', submission_type='Save',
+                  name='test_character_limit', desc='test_character_limit desc')
+      content = json.loads(response.content)
+      design_id = content['design_id']
 
-    design = SavedQuery.objects.get(id=design_id)
-    design_obj = hql_query('SELECT')
+      design = SavedQuery.objects.get(id=design_id)
+      design_obj = hql_query('SELECT')
 
-    # Save query
-    saved_design = _save_design(user=self.user, design=design, type_=HQL, design_obj=design_obj,
-                                explicit_save=True, name='This__design__name__contains___sixty__five___characters___exactly', desc='test_save_design desc')
-    len_after = len(saved_design.name)
-    assert_equal(len_after, 64)
-    saved_design = _save_design(user=self.user, design=design, type_=HQL, design_obj=design_obj,
-                                explicit_save=False, name='This__design__name__contains___sixty__five___characters___exactly', desc='test_save_design desc')
-    # Above design name is already 64 characters, so saved_design name shouldn't exceed the limit
-    len_after = len(saved_design.name)
-    assert_equal(len_after, 64)
+      # Save query
+      saved_design = _save_design(user=self.user, design=design, type_=HQL, design_obj=design_obj,
+                                  explicit_save=True, name='This__design__name__contains___sixty__five___characters___exactly', desc='test_save_design desc')
+      len_after = len(saved_design.name)
+      assert_equal(len_after, 64)
+      saved_design = _save_design(user=self.user, design=design, type_=HQL, design_obj=design_obj,
+                                  explicit_save=False, name='This__design__name__contains___sixty__five___characters___exactly', desc='test_save_design desc')
+      # Above design name is already 64 characters, so saved_design name shouldn't exceed the limit
+      len_after = len(saved_design.name)
+      assert_equal(len_after, 64)
 
   def test_get_history_xss(self):
-    sql = 'SELECT count(sample_07.salary) FROM sample_07;"><iFrAME>src="javascript:alert(\'Hue has an xss\');"></iFraME>'
-    sql_escaped = b'SELECT count(sample_07.salary) FROM sample_07;&quot;&gt;&lt;iFrAME&gt;src=&quot;javascript:alert(&#39;Hue has an xss&#39;);&quot;&gt;&lt;/iFraME&gt;'
+    with patch('beeswax.server.dbms.KazooClient') as KazooClient:
+      server_config = get_query_server_config(name='beeswax')
+      KazooClient.return_value = Mock(
+        # Bug "TypeError: expected string or buffer" if False, to add a new test case and fix
+        exists=Mock(return_value=True),
+        get_children=Mock(
+          return_value=['serverUri=hive-llap-1.gethue.com:10002;serverUri=hive-llap-2.gethue.com:10002'])
+      )
+      sql = 'SELECT count(sample_07.salary) FROM sample_07;"><iFrAME>src="javascript:alert(\'Hue has an xss\');"></iFraME>'
+      sql_escaped = b'SELECT count(sample_07.salary) FROM sample_07;&quot;&gt;&lt;iFrAME&gt;src=&quot;javascript:alert(&#39;Hue has an xss&#39;);&quot;&gt;&lt;/iFraME&gt;'
 
-    response = _make_query(self.client, sql, submission_type='Save', name='My Name 1', desc='My Description')
-    content = json.loads(response.content)
-    design_id = content['design_id']
-    design = SavedQuery.objects.get(id=design_id)
+      response = _make_query(self.client, sql, submission_type='Save', name='My Name 1', desc='My Description')
+      content = json.loads(response.content)
+      design_id = content['design_id']
+      design = SavedQuery.objects.get(id=design_id)
 
-    query_history = QueryHistory.build(
-        owner=self.user,
-        query=sql,
-        server_host='server_host',
-        server_port=1,
-        server_name='server_name',
-        server_type=HIVE_SERVER2,
-        last_state=QueryHistory.STATE.submitted.value,
-        design=design,
-        notify=False,
-        query_type=HQL,
-        statement_number=0
-    )
-    query_history.save()
+      query_history = QueryHistory.build(
+          owner=self.user,
+          query=sql,
+          server_host='server_host',
+          server_port=1,
+          server_name='server_name',
+          server_type=HIVE_SERVER2,
+          last_state=QueryHistory.STATE.submitted.value,
+          design=design,
+          notify=False,
+          query_type=HQL,
+          statement_number=0
+      )
+      query_history.save()
 
-    resp = self.client.get('/beeswax/query_history?format=json')
-    assert_true(sql_escaped in resp.content, resp.content)
-    if not isinstance(sql, bytes):
-      sql = sql.encode('utf-8')
-    assert_false(sql in resp.content, resp.content)
+      resp = self.client.get('/beeswax/query_history?format=json')
+      assert_true(sql_escaped in resp.content, resp.content)
+      if not isinstance(sql, bytes):
+        sql = sql.encode('utf-8')
+      assert_false(sql in resp.content, resp.content)
 
   def test_redact_saved_design(self):
-    old_policies = redaction.global_redaction_engine.policies
-    redaction.global_redaction_engine.policies = [
-      RedactionPolicy([
-        RedactionRule('', 'ssn=\d{3}-\d{2}-\d{4}', 'ssn=XXX-XX-XXXX'),
-      ])
-    ]
+    with patch('beeswax.server.dbms.KazooClient') as KazooClient:
+      server_config = get_query_server_config(name='beeswax')
+      KazooClient.return_value = Mock(
+        # Bug "TypeError: expected string or buffer" if False, to add a new test case and fix
+        exists=Mock(return_value=True),
+        get_children=Mock(
+          return_value=['serverUri=hive-llap-1.gethue.com:10002;serverUri=hive-llap-2.gethue.com:10002'])
+      )
+      old_policies = redaction.global_redaction_engine.policies
+      redaction.global_redaction_engine.policies = [
+        RedactionPolicy([
+          RedactionRule('', 'ssn=\d{3}-\d{2}-\d{4}', 'ssn=XXX-XX-XXXX'),
+        ])
+      ]
 
-    logfilter.add_log_redaction_filter_to_logger(redaction.global_redaction_engine, logging.root)
+      logfilter.add_log_redaction_filter_to_logger(redaction.global_redaction_engine, logging.root)
 
-    try:
-      # Make sure redacted queries are redacted.
-      query = 'SELECT "ssn=123-45-6789"'
-      expected_query = 'SELECT "ssn=XXX-XX-XXXX"'
+      try:
+        # Make sure redacted queries are redacted.
+        query = 'SELECT "ssn=123-45-6789"'
+        expected_query = 'SELECT "ssn=XXX-XX-XXXX"'
 
-      response = _make_query(self.client, query, submission_type='Save', name='My Name 1', desc='My Description')
-      content = json.loads(response.content)
-      design_id = content['design_id']
+        response = _make_query(self.client, query, submission_type='Save', name='My Name 1', desc='My Description')
+        content = json.loads(response.content)
+        design_id = content['design_id']
 
-      design = SavedQuery.get(id=design_id)
-      data = json.loads(design.data)
+        design = SavedQuery.get(id=design_id)
+        data = json.loads(design.data)
 
-      assert_equal(data['query']['query'], expected_query)
-      assert_true(design.is_redacted)
+        assert_equal(data['query']['query'], expected_query)
+        assert_true(design.is_redacted)
 
-      # Make sure unredacted queries are not redacted.
-      query = 'SELECT "hello"'
-      expected_query = 'SELECT "hello"'
+        # Make sure unredacted queries are not redacted.
+        query = 'SELECT "hello"'
+        expected_query = 'SELECT "hello"'
 
-      response = _make_query(self.client, query, submission_type='Save', name='My Name 2', desc='My Description')
-      content = json.loads(response.content)
-      design_id = content['design_id']
+        response = _make_query(self.client, query, submission_type='Save', name='My Name 2', desc='My Description')
+        content = json.loads(response.content)
+        design_id = content['design_id']
 
-      design = SavedQuery.get(id=design_id)
-      data = json.loads(design.data)
+        design = SavedQuery.get(id=design_id)
+        data = json.loads(design.data)
 
-      assert_equal(data['query']['query'], expected_query)
-      assert_false(design.is_redacted)
-    finally:
-      redaction.global_redaction_engine.policies = old_policies
+        assert_equal(data['query']['query'], expected_query)
+        assert_false(design.is_redacted)
+      finally:
+        redaction.global_redaction_engine.policies = old_policies
 
 
   def test_search_designs(self):
-    # Create 20 (DEFAULT_PAGE_SIZE) queries to fill page 1, plus a target query for page 2
-    page_1 = []
-    for i in range(1, 21):
-      response = _make_query(self.client, 'SELECT', submission_type='Save', name='My Name %d' % i, desc='My Description')
+    with patch('beeswax.server.dbms.KazooClient') as KazooClient:
+      server_config = get_query_server_config(name='beeswax')
+      KazooClient.return_value = Mock(
+        # Bug "TypeError: expected string or buffer" if False, to add a new test case and fix
+        exists=Mock(return_value=True),
+        get_children=Mock(
+          return_value=['serverUri=hive-llap-1.gethue.com:10002;serverUri=hive-llap-2.gethue.com:10002'])
+      )
+      # Create 20 (DEFAULT_PAGE_SIZE) queries to fill page 1, plus a target query for page 2
+      page_1 = []
+      for i in range(1, 21):
+        response = _make_query(self.client, 'SELECT', submission_type='Save', name='My Name %d' % i, desc='My Description')
+        content = json.loads(response.content)
+        query_id = content['design_id']
+        page_1.append(query_id)
+
+      response = _make_query(self.client, 'SELECT', submission_type='Save', name='Test Search Design', desc='My Test Search Design')
       content = json.loads(response.content)
       query_id = content['design_id']
-      page_1.append(query_id)
+      page_2 = [query_id]
 
-    response = _make_query(self.client, 'SELECT', submission_type='Save', name='Test Search Design', desc='My Test Search Design')
-    content = json.loads(response.content)
-    query_id = content['design_id']
-    page_2 = [query_id]
+      resp = self.client.get(reverse('beeswax:list_designs') + '?text=Test+Search+Design')
+      ids_page = set([query.id for query in resp.context[0]['page'].object_list])
+      assert_equal(0, sum([query_id in ids_page for query_id in page_1]))
+      assert_equal(1, sum([query_id in ids_page for query_id in page_2]))
 
-    resp = self.client.get(reverse('beeswax:list_designs') + '?text=Test+Search+Design')
-    ids_page = set([query.id for query in resp.context[0]['page'].object_list])
-    assert_equal(0, sum([query_id in ids_page for query_id in page_1]))
-    assert_equal(1, sum([query_id in ids_page for query_id in page_2]))
+      # Trash all designs and test search trashed designs
+      ids = page_1 + page_2
+      self.client.post(reverse('beeswax:delete_design'), {u'skipTrash': [u'false'], u'designs_selection': ids})
+      SavedQuery.objects.filter(id__in=ids)
 
-    # Trash all designs and test search trashed designs
-    ids = page_1 + page_2
-    self.client.post(reverse('beeswax:delete_design'), {u'skipTrash': [u'false'], u'designs_selection': ids})
-    SavedQuery.objects.filter(id__in=ids)
-
-    resp = self.client.get(reverse('beeswax:list_trashed_designs') + '?text=Test+Search+Design')
-    ids_page = set([query.id for query in resp.context[0]['page'].object_list])
-    assert_equal(0, sum([query_id in ids_page for query_id in page_1]))
-    assert_equal(1, sum([query_id in ids_page for query_id in page_2]))
+      resp = self.client.get(reverse('beeswax:list_trashed_designs') + '?text=Test+Search+Design')
+      ids_page = set([query.id for query in resp.context[0]['page'].object_list])
+      assert_equal(0, sum([query_id in ids_page for query_id in page_1]))
+      assert_equal(1, sum([query_id in ids_page for query_id in page_2]))
 
   def test_clear_history(self):
-    sql = 'SHOW TABLES'
-    response = _make_query(self.client, sql, submission_type='Save', name='My clear', desc='My Description')
-    content = json.loads(response.content)
-    design_id = content['design_id']
-    design = SavedQuery.objects.get(id=design_id)
+    with patch('beeswax.server.dbms.KazooClient') as KazooClient:
+      server_config = get_query_server_config(name='beeswax')
+      KazooClient.return_value = Mock(
+        # Bug "TypeError: expected string or buffer" if False, to add a new test case and fix
+        exists=Mock(return_value=True),
+        get_children=Mock(
+          return_value=['serverUri=hive-llap-1.gethue.com:10002;serverUri=hive-llap-2.gethue.com:10002'])
+      )
+      sql = 'SHOW TABLES'
+      response = _make_query(self.client, sql, submission_type='Save', name='My clear', desc='My Description')
+      content = json.loads(response.content)
+      design_id = content['design_id']
+      design = SavedQuery.objects.get(id=design_id)
 
-    query_history = QueryHistory.build(
-        owner=self.user,
-        query=sql,
-        server_host='server_host',
-        server_port=1,
-        server_name='server_name',
-        server_type=HIVE_SERVER2,
-        last_state=QueryHistory.STATE.submitted.value,
-        design=design,
-        notify=False,
-        query_type=HQL,
-        statement_number=0
-    )
-    query_history.save()
+      query_history = QueryHistory.build(
+          owner=self.user,
+          query=sql,
+          server_host='server_host',
+          server_port=1,
+          server_name='server_name',
+          server_type=HIVE_SERVER2,
+          last_state=QueryHistory.STATE.submitted.value,
+          design=design,
+          notify=False,
+          query_type=HQL,
+          statement_number=0
+      )
+      query_history.save()
 
-    resp = self.client.get(reverse('beeswax:list_query_history') + '?q-design_id=%s&format=json' % design_id)
-    json_resp = json.loads(resp.content)
-    design_ids = [history['design_id'] for history in json_resp['queries']]
-    assert_true(design_id in design_ids, json_resp)
-    resp = self.client.get(reverse('beeswax:list_query_history') + '?q-design_id=%s&recent=true&format=json' % design_id)
-    json_resp = json.loads(resp.content)
-    design_ids = [history['design_id'] for history in json_resp['queries']]
-    assert_true(design_id in design_ids, json_resp)
+      resp = self.client.get(reverse('beeswax:list_query_history') + '?q-design_id=%s&format=json' % design_id)
+      json_resp = json.loads(resp.content)
+      design_ids = [history['design_id'] for history in json_resp['queries']]
+      assert_true(design_id in design_ids, json_resp)
+      resp = self.client.get(reverse('beeswax:list_query_history') + '?q-design_id=%s&recent=true&format=json' % design_id)
+      json_resp = json.loads(resp.content)
+      design_ids = [history['design_id'] for history in json_resp['queries']]
+      assert_true(design_id in design_ids, json_resp)
 
-    self.client.post(reverse('beeswax:clear_history'))
+      self.client.post(reverse('beeswax:clear_history'))
 
-    resp = self.client.get(reverse('beeswax:list_query_history') + '?q-design_id=%s&format=json' % design_id)
-    json_resp = json.loads(resp.content)
-    design_ids = [history['design_id'] for history in json_resp['queries']]
-    assert_true(design_id in design_ids, json_resp)
-    resp = self.client.get(reverse('beeswax:list_query_history') + '?q-design_id=%s&recent=true&format=json' % design_id)
-    json_resp = json.loads(resp.content)
-    design_ids = [history['design_id'] for history in json_resp['queries']]
-    assert_false(design_id in design_ids, json_resp)
+      resp = self.client.get(reverse('beeswax:list_query_history') + '?q-design_id=%s&format=json' % design_id)
+      json_resp = json.loads(resp.content)
+      design_ids = [history['design_id'] for history in json_resp['queries']]
+      assert_true(design_id in design_ids, json_resp)
+      resp = self.client.get(reverse('beeswax:list_query_history') + '?q-design_id=%s&recent=true&format=json' % design_id)
+      json_resp = json.loads(resp.content)
+      design_ids = [history['design_id'] for history in json_resp['queries']]
+      assert_false(design_id in design_ids, json_resp)
 
 
 class TestDesign(object):
@@ -3081,7 +3129,16 @@ def test_hiveserver2_get_security():
   try:
     hive_site._HIVE_SITE_DICT[hive_site._CNF_HIVESERVER2_KERBEROS_PRINCIPAL] = 'hive/hive@test.com'
 
-    principal = get_query_server_config('beeswax')['principal']
+    with patch('beeswax.server.dbms.KazooClient') as KazooClient:
+      server_config = get_query_server_config(name='beeswax')
+      KazooClient.return_value = Mock(
+        # Bug "TypeError: expected string or buffer" if False, to add a new test case and fix
+        exists=Mock(return_value=True),
+        get_children=Mock(
+          return_value=['serverUri=hive-llap-1.gethue.com:10002;serverUri=hive-llap-2.gethue.com:10002'])
+      )
+
+      principal = get_query_server_config('beeswax')['principal']
     assert_true(principal.startswith('hive/'), principal)
 
     principal = get_query_server_config('impala')['principal']
